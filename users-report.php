@@ -3,38 +3,57 @@
 require_once __DIR__ . '/inc/cli.php';
 
 function get_users( $endpoint, $username, $password ) {
-	$request = xmlrpc_encode_request( 'wp.getUsers', array(
-		1,
-		$username,
-		$password,
-	) );
+	$users_per_page = 100;
+	$offset         = 0;
+	$users          = array();
 
-	$context = stream_context_create(
-		array(
-			'http' => array(
-				'method'     => 'POST',
-				'header'     => 'Content-Type: text/xml'. "\r\n",
-				'content'    => $request,
-				'user_agent' => 'XML-RPC client',
+	do {
+		$request = xmlrpc_encode_request( 'wp.getUsers', array(
+			1,
+			$username,
+			$password,
+			array(
+				'number' => $users_per_page,
+				'offset' => $offset,
 			)
-		)
-	);
+		) );
 
-	$contents = file_get_contents( sprintf( '%s/xmlrpc.php', $endpoint ), false, $context );
+		$context = stream_context_create(
+			array(
+				'http' => array(
+					'method'     => 'POST',
+					'header'     => 'Content-Type: text/xml'. "\r\n",
+					'content'    => $request,
+					'user_agent' => 'XML-RPC client',
+				)
+			)
+		);
 
-	if ( false === $contents ) {
-		throw new Exception( sprintf( 'Cannot connect to %s', $endpoint ) );
+		$contents = file_get_contents( sprintf( '%s/xmlrpc.php', $endpoint ), false, $context );
+
+		if ( false === $contents ) {
+			throw new Exception( sprintf( 'Cannot connect to %s', $endpoint ) );
+		}
+
+		$page_users = xmlrpc_decode( $contents );
+
+		if ( null === $page_users ) {
+			throw new Exception( sprintf( 'Cannot decode response from %s', $endpoint ) );
 	}
 
-	$users = xmlrpc_decode( $contents );
+		if ( xmlrpc_is_fault( $page_users ) ) {
+			throw new Exception( 'Invalid response' );
+		}
 
-	if ( null === $users ) {
-		throw new Exception( sprintf( 'Cannot decode response from %s', $endpoint ) );
-	}
+		if ( count( $page_users ) === $users_per_page ) {
+			$continue = true;
+			$offset   += $users_per_page;
+		} else {
+			$continue = false;
+		}
 
-	if ( xmlrpc_is_fault( $users ) ) {
-		throw new Exception( 'Invalid response' );
-	}
+		$users += $page_users;
+	} while ( $continue );
 
 	return $users;
 }
